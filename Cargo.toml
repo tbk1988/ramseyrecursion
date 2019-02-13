@@ -3,4 +3,7 @@ name = "ramsey_numbers"
 version = "0.1.0"
 authors = ["Oliver K <okruger@math.su.se>"]
 
-[dependencies]
+[dependencies] 
+num-bigint = "0.2.2"
+num-traits = "0.2.6"
+num-integer = "0.1"

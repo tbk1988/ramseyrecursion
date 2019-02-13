@@ -163,6 +163,8 @@ fn shiopt(a: u64, b: u64, c: u64, p: u64, mi: u64, ma: u64) -> bool {
 /*
  * Uses methods from Shi et al. to improve the diagonal entry (d,d) in
  * the Ramsey-table (using current values in r) as much as possible.
+ *
+ * TODO: Consider using binary search rather than linear.
  */
 fn shi(d: u64, r: &mut HashMap<(u64,u64),u64>) {
     let a = rub(d-1,d,&r)-1;
@@ -205,38 +207,125 @@ fn folklore_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
 fn huang_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
     let a: BigInt = (rub(x-2,y,&r)-1).to_bigint().unwrap();
     let b: BigInt = (rub(x,y-2,&r)-1).to_bigint().unwrap(); 
-    let mut p = rub(x,y,&r)-1;
+    let mut p = rub(x,y,&r)-1; 
     let mut deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
         None => 0,
         Some(x) => x,
     };
     let deg_ub = rub(x-1,y,&r)-1;
-    let mut lhs = (p-1)*(p-2-&a); 
+    let mut lhs = (p-1)*(p-2-&a);
 
-    /* TODO: Replace linear search by binary */ 
-    loop {
+    /* The following bound is not theoretical (since it employs
+     * the upper bound for R(x-1,y) and R(x,y-1)). However, the
+     * Huang-reduction will certainly not improve beyond this.
+     *
+     * TODO: Calculate a lower theoretical bound for how low the
+     * value of p could get by the Huang-reduction method.
+     */
+    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1;
+    let mut ubp: u64 = p; 
+    while &ubp - &lbp > 1 {
         let mut maxval: BigInt = 0.to_bigint().unwrap();
         let t: BigInt = &a-&b+3*(p-1).to_bigint().unwrap();
         if 6*deg_lb.to_bigint().unwrap() < t && t < 6*deg_ub.to_bigint().unwrap() {
             for k in deg_lb..(deg_ub+1) {
                 maxval = max(maxval,&t*k - 3*k.pow(2u32) + (&b-&a)*(p-1));
+                if maxval >= lhs {
+                    break;
+                }
             }
         } else {
             let vallb = &t*deg_lb - 3*deg_lb.pow(2u32) + (&b-&a)*(p-1);
             let valub = &t*deg_ub - 3*deg_ub.pow(2u32) + (&b-&a)*(p-1);
-            maxval = max(vallb,valub)
+            maxval = max(vallb,valub);
         }
         if maxval < lhs {
-            p = p - 1;
-            lhs = (p-1)*(p-2-&a);
-            deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
-                None => 0,
-                Some(x) => x,
-            };
+            ubp = p; 
         } else {
-            break;
+            lbp = p;
         }
+        p = (ubp+lbp)/2;
+        lhs = (p-1)*(p-2-&a);
+        deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
+            None => 0,
+            Some(x) => x,
+        }; 
     }
+
+    (rub(x,y,&r) as i128) - ((p + 1) as i128)
+}
+
+/* Get a lower bound for e(x,y,p). */
+fn elb(x: u64, y: u64, p: u64, r: &HashMap<(u64,u64),u64>) -> BigInt {
+    let a: BigInt = (rub(x-2,y,&r)-1).to_bigint().unwrap();
+    let b: BigInt = (rub(x,y-2,&r)-1).to_bigint().unwrap(); 
+    let d: BigInt = (rub(x-1,y,&r)-1).to_bigint().unwrap();
+ 
+    let v_a: BigInt = (&a-&b+3*(p-1))*p;
+    let v_b: BigInt = 12*p*p*(p-1)*(p-2-&b);
+    let s: BigInt = v_a.pow(2u32) - &v_b;
+    if v_a.pow(2u32) > v_b {
+        max(p*(p-&d-1)/2, (v_a-s.sqrt() + 11)/12)
+    } else {
+        p*(p-&d-1)/2
+    }
+}
+
+/* Get an upper bound for E(x,y,p). */
+fn eub(x: u64, y: u64, p: u64, r: &HashMap<(u64,u64),u64>) -> BigInt {
+    let a: BigInt = (rub(x-2,y,&r)-1).to_bigint().unwrap();
+    let b: BigInt = (rub(x,y-2,&r)-1).to_bigint().unwrap(); 
+    let c: BigInt = (rub(x-1,y,&r)-1).to_bigint().unwrap(); 
+ 
+    let v_a: BigInt = (&a-&b+3*(p-1))*p;
+    let v_b: BigInt = 12*p*p*(p-1)*(p-2-&b);
+    let s: BigInt = v_a.pow(2u32) - &v_b;
+    if v_a.pow(2u32) > v_b {
+        min((p*&c+1)/2, (v_a+s.sqrt())/12)
+    } else {
+        (p*&c+1)/2
+    }
+} 
+
+/*
+ * Returns by how much we may reduce the currently saved bound, of R(x,y), by
+ * applying the new methods.
+ */
+fn new_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 { 
+    let mut p = rub(x,y,&r)-1; 
+    let mut deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
+        None => 0,
+        Some(x) => x,
+    };
+    let deg_ub = rub(x-1,y,&r)-1;
+    let mut lhs = (p-1)*(p-2).to_bigint().unwrap();
+
+    /* 
+     * TODO: Calculate a lower theoretical bound for how low the
+     * value of p could get by the Huang-reduction method.
+     */
+    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1;
+    let mut ubp: u64 = p; 
+    while &ubp - &lbp > 1 {
+        let mut maxval: BigInt = 0.to_bigint().unwrap();
+        for k in deg_lb..(deg_ub+1) { 
+            maxval = max(maxval,(p-k-1)*(p-k-2)
+                         - 2*elb(x,y-1,p-k-1,&r)
+                         + 2*eub(x-1,y,k,&r) + 3*k*(p-k-1))
+        } 
+        if maxval < lhs {
+            ubp = p; 
+        } else {
+            lbp = p;
+        }
+        p = (ubp+lbp)/2;
+        lhs = (p-1)*(p-2).to_bigint().unwrap();
+        deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
+            None => 0,
+            Some(x) => x,
+        }; 
+    }
+
     (rub(x,y,&r) as i128) - ((p + 1) as i128)
 }
 
@@ -256,7 +345,8 @@ fn main() {
     shi(10, &mut r);
 
     println!("Folklore: R(10,10) \\leq {}", (rub(10,10,&r) as i128)-folklore_reduction(10,10,&r));
-    println!("Huang: R(5,7) \\leq {}", (rub(5,7,&r) as i128)-huang_reduction(7,8,&r));
+    println!("Huang: R(5,7) \\leq {}", (rub(5,7,&r) as i128)-huang_reduction(5,7,&r));
+    println!("New: R(5,7) \\leq {}", (rub(5,7,&r) as i128)-new_reduction(5,7,&r));
 
     for (m,n) in r.keys() {
         print!("R({},{}) = {}", m, n, r.get(&(*m,*n)).unwrap());

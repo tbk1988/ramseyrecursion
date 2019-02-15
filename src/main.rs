@@ -171,7 +171,7 @@ fn shi(d: u64, r: &mut HashMap<(u64,u64),u64>) {
     let b = rub(d-2,d,&r)-1;
     let c = rub(d-3,d,&r)-1;
     let mut p = rub(d,d,&r)-1;
-    println!("> Using Shi et al. to see if R({},{}) \\leq {} is best possible",d,d,p+1);
+
     loop {
         let mi = (p*(p-1)*(p-5) + 23)/24; // ceil(p/q) = (p+q-1)/q
         let ma = p*(p-1)*b/6;
@@ -204,10 +204,14 @@ fn folklore_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
  * Returns by how much we may reduce the currently saved bound, of R(x,y), by
  * applying the Huang et al.-bound
  */
-fn huang_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
+fn huang_reduction(x: u64, y: u64, ub: u64,
+                   r: &HashMap<(u64,u64),u64>) -> i128 {
+    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1;
+    let mut ubp: u64 = ub;
+    let mut p = (ubp+lbp)/2;
+
     let a: BigInt = (rub(x-2,y,&r)-1).to_bigint().unwrap();
     let b: BigInt = (rub(x,y-2,&r)-1).to_bigint().unwrap(); 
-    let mut p = rub(x,y,&r)-1; 
     let mut deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
         None => 0,
         Some(x) => x,
@@ -221,14 +225,12 @@ fn huang_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
      *
      * TODO: Calculate a lower theoretical bound for how low the
      * value of p could get by the Huang-reduction method.
-     */
-    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1;
-    let mut ubp: u64 = p; 
-    while &ubp - &lbp > 1 {
-        let mut maxval: BigInt = 0.to_bigint().unwrap();
+     */ 
+    while &(ubp as i128) - &(lbp as i128) > 1 { 
         let t: BigInt = &a-&b+3*(p-1).to_bigint().unwrap();
+        let mut maxval: BigInt = &t*deg_lb - 3*deg_lb.pow(2u32) + (&b-&a)*(p-1);
         if 6*deg_lb.to_bigint().unwrap() < t && t < 6*deg_ub.to_bigint().unwrap() {
-            for k in deg_lb..(deg_ub+1) {
+            for k in deg_lb..=deg_ub {
                 maxval = max(maxval,&t*k - 3*k.pow(2u32) + (&b-&a)*(p-1));
                 if maxval >= lhs {
                     break;
@@ -241,7 +243,7 @@ fn huang_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
         }
         if maxval < lhs {
             ubp = p; 
-        } else {
+        } else { 
             lbp = p;
         }
         p = (ubp+lbp)/2;
@@ -252,22 +254,35 @@ fn huang_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
         }; 
     }
 
-    (rub(x,y,&r) as i128) - ((p + 1) as i128)
+    (rub(x,y,&r) as i128) - ((lbp+1) as i128)
 }
 
 /* Get a lower bound for e(x,y,p). */
 fn elb(x: u64, y: u64, p: u64, r: &HashMap<(u64,u64),u64>) -> BigInt {
     let a: BigInt = (rub(x-2,y,&r)-1).to_bigint().unwrap();
     let b: BigInt = (rub(x,y-2,&r)-1).to_bigint().unwrap(); 
-    let d: BigInt = (rub(x-1,y,&r)-1).to_bigint().unwrap();
+    let d: BigInt = (rub(x,y-1,&r)-1).to_bigint().unwrap(); 
  
     let v_a: BigInt = (&a-&b+3*(p-1))*p;
     let v_b: BigInt = 12*p*p*(p-1)*(p-2-&b);
     let s: BigInt = v_a.pow(2u32) - &v_b;
     if v_a.pow(2u32) > v_b {
-        max(p*(p-&d-1)/2, (v_a-s.sqrt() + 11)/12)
+        let t = max((p*(p-&d-1) + 1)/2, (v_a-s.sqrt() + 11)/12);
+        if x == 4 {
+            max(0.to_bigint().unwrap(),max(t,
+            max(5*p-12*(y.to_bigint().unwrap()-1),8*p-24*(y.to_bigint().unwrap()-1))))
+        } else {
+            t
+        }
     } else {
-        p*(p-&d-1)/2
+        let t = (p*(p-&d-1) + 1)/2;
+        if x == 4 {
+            max(0.to_bigint().unwrap(),max(t,
+            max(5*p-12*(y.to_bigint().unwrap()-1),8*p-24*(y.to_bigint().unwrap()-1))))
+
+        } else {
+            t
+        }
     }
 }
 
@@ -276,42 +291,46 @@ fn eub(x: u64, y: u64, p: u64, r: &HashMap<(u64,u64),u64>) -> BigInt {
     let a: BigInt = (rub(x-2,y,&r)-1).to_bigint().unwrap();
     let b: BigInt = (rub(x,y-2,&r)-1).to_bigint().unwrap(); 
     let c: BigInt = (rub(x-1,y,&r)-1).to_bigint().unwrap(); 
- 
+
     let v_a: BigInt = (&a-&b+3*(p-1))*p;
     let v_b: BigInt = 12*p*p*(p-1)*(p-2-&b);
     let s: BigInt = v_a.pow(2u32) - &v_b;
     if v_a.pow(2u32) > v_b {
-        min((p*&c+1)/2, (v_a+s.sqrt())/12)
+        min((p*&c)/2, (v_a+s.sqrt())/12)
     } else {
-        (p*&c+1)/2
+        (p*&c)/2
     }
 } 
 
 /*
  * Returns by how much we may reduce the currently saved bound, of R(x,y), by
  * applying the new methods.
+ *
+ * ub is the upper bound to start with. if we want to improve on the hashtable
+ * values ub should be rub(x,y)
  */
-fn new_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 { 
-    let mut p = rub(x,y,&r)-1; 
+fn new_reduction(x: u64, y: u64, ub: u64,
+                 r: &HashMap<(u64,u64),u64>) -> i128 { 
+    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1;
+    let mut ubp: u64 = ub;
+    let mut p = (ubp+lbp)/2;
     let mut deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
         None => 0,
         Some(x) => x,
     };
     let deg_ub = rub(x-1,y,&r)-1;
-    let mut lhs = (p-1)*(p-2).to_bigint().unwrap();
+    let mut lhs = (p-1)*(p-2).to_bigint().unwrap(); 
 
     /* 
      * TODO: Calculate a lower theoretical bound for how low the
      * value of p could get by the Huang-reduction method.
-     */
-    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1;
-    let mut ubp: u64 = p; 
+     */ 
     while &ubp - &lbp > 1 {
-        let mut maxval: BigInt = 0.to_bigint().unwrap();
-        for k in deg_lb..(deg_ub+1) { 
+        let mut maxval: BigInt = 0.to_bigint().unwrap(); 
+        for k in deg_lb..=deg_ub {
             maxval = max(maxval,(p-k-1)*(p-k-2)
                          - 2*elb(x,y-1,p-k-1,&r)
-                         + 2*eub(x-1,y,k,&r) + 3*k*(p-k-1))
+                         + 2*eub(x-1,y,k,&r) + 3*k*(p-k-1)); 
         } 
         if maxval < lhs {
             ubp = p; 
@@ -324,9 +343,28 @@ fn new_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
             None => 0,
             Some(x) => x,
         }; 
-    }
+    } 
 
-    (rub(x,y,&r) as i128) - ((p + 1) as i128)
+    (rub(x,y,&r) as i128) - ((lbp+1) as i128) 
+}
+
+/*
+ * Optimize R(x,y) using available methods for
+ *   xmin \leq x \leq xmax
+ *   x \leq y \leq ymax
+ */
+fn optim(xmin: u64, xmax: u64, ymax: u64, r: &mut HashMap<(u64,u64),u64>) { 
+    for x in xmin..(xmax+1) {
+        shi(x, r);
+        for y in (x+1)..(ymax+1) { 
+            let pp = (rub(x,y,&r) as i128)
+                - max(max(folklore_reduction(x,y,&r),
+                   huang_reduction(x,y,rub(x,y,&r),&r)),
+                   new_reduction(x,y,rub(x,y,&r),&r));
+            let xx = r.entry((x,y)).or_insert(pp as u64);
+            *xx = min(*xx,pp as u64); 
+        }
+    }
 }
 
 fn main() {
@@ -337,23 +375,38 @@ fn main() {
 
     let mut r = HashMap::new();
     read_ramsey_numbers(&ramsey_file, &mut r);
-    let rcopy = r.clone();
+    let rcopy = r.clone(); 
 
-    shi(7, &mut r);
-    shi(8, &mut r);
-    shi(9, &mut r);
-    shi(10, &mut r);
+    let xmin = 3;
+    let xmax = 8;
+    let ymax = 10;
+    optim(xmin+1,xmax,ymax,&mut r); 
 
-    println!("Folklore: R(10,10) \\leq {}", (rub(10,10,&r) as i128)-folklore_reduction(10,10,&r));
-    println!("Huang: R(5,7) \\leq {}", (rub(5,7,&r) as i128)-huang_reduction(5,7,&r));
-    println!("New: R(5,7) \\leq {}", (rub(5,7,&r) as i128)-new_reduction(5,7,&r));
-
-    for (m,n) in r.keys() {
-        print!("R({},{}) = {}", m, n, r.get(&(*m,*n)).unwrap());
-        if rcopy.contains_key(&(*m,*n)) {
-            println!(" = {}", rcopy.get(&(*m,*n)).unwrap());
-        } else {
-            println!(" (new)");
+    for x in xmin..=xmax {
+        for y in xmin..=ymax {
+            if y < x {
+                print!("         ");
+            } else {
+                print!("{0: >7}",rub(x,y,&r));
+                if rcopy.contains_key(&(x,y)) {
+                    if rub(x,y,&r) == *rcopy.get(&(x,y)).unwrap() { 
+                        print!("  ");
+                    } else if folklore_reduction(x,y,&r) >= 0 {
+                        print!("= ");
+                    } else if huang_reduction(x,y,rub(x,y,&r)+1,&r) >= 0 { 
+                        print!("+ ");
+                    } else {
+                        if x != y {
+                            print!("* ");
+                        } else {
+                            print!("s ");
+                        }
+                    } 
+                } else {
+                    print!("n ");
+                }
+            }
         }
+        println!(" || x = {}", x);
     }
 }

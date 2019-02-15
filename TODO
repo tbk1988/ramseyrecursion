@@ -1,0 +1,7 @@
+- Implement a flag to set, which makes the program
+  use linear search instead of binary search (this
+  should be quicker in cases where we already have
+  a good bound).
+- Optimize the code.
+- Write tests for each function.
+- Also see TODO-comments in the source file(s).

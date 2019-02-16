@@ -200,14 +200,66 @@ fn folklore_reduction(x: u64, y: u64, r: &HashMap<(u64,u64),u64>) -> i128 {
     }
 }
 
+fn huang_test(p: u64, a: &BigInt, b: &BigInt, deg_lb: u64, deg_ub: u64,
+              lhs: &BigInt) -> bool {
+    let t: BigInt = a-b+3*(p-1).to_bigint().unwrap();
+    let mut maxval: BigInt = &t*deg_lb - 3*deg_lb.pow(2u32) + (b-a)*(p-1); 
+
+    if 6*deg_lb.to_bigint().unwrap() < t && t < 6*deg_ub.to_bigint().unwrap() {
+        for k in deg_lb..=deg_ub {
+            maxval = max(maxval,&t*k - 3*k.pow(2u32) + (b-a)*(p-1));
+            if maxval >= *lhs {
+                return false;
+            }
+        }
+    } else {
+        let vallb = &t*deg_lb - 3*deg_lb.pow(2u32) + (b-a)*(p-1);
+        let valub = &t*deg_ub - 3*deg_ub.pow(2u32) + (b-a)*(p-1);
+        maxval = max(vallb,valub);
+    }
+
+    maxval < *lhs
+}
+
 /*
  * Returns by how much we may reduce the currently saved bound, of R(x,y), by
  * applying the Huang et al.-bound
  */
 fn huang_reduction(x: u64, y: u64, ub: u64,
                    r: &HashMap<(u64,u64),u64>) -> i128 {
-    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1;
-    let mut ubp: u64 = ub;
+    /* To make verification quicker, check first p = ub-1 and
+     * p = ub-2.
+     */
+    let mut ubp: u64;
+    let deg_ub = rub(x-1,y,&r)-1;
+    let mut p = ub-1; 
+    let mut deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
+        None => 0,
+        Some(x) => x,
+    };
+    let a: BigInt = (rub(x-2,y,&r)-1).to_bigint().unwrap();
+    let b: BigInt = (rub(x,y-2,&r)-1).to_bigint().unwrap(); 
+    let mut lhs = (p-1)*(p-2-&a); 
+    if huang_test(p,&a,&b,deg_lb,deg_ub,&lhs) {
+        p = ub-2;
+        deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
+            None => 0,
+            Some(x) => x,
+        }; 
+        lhs = (p-1)*(p-2-&a); 
+        if huang_test(p,&a,&b,deg_lb,deg_ub,&lhs) {
+            ubp = ub-2;
+        } else {
+            return 1;
+        }
+    } else {
+        return 0;
+    }
+
+    /* If huang_test is true for both p = ub-1 and p=ub-2 then
+     * do binary search.
+     */
+    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1; 
     let mut p = (ubp+lbp)/2;
 
     let a: BigInt = (rub(x-2,y,&r)-1).to_bigint().unwrap();
@@ -215,35 +267,13 @@ fn huang_reduction(x: u64, y: u64, ub: u64,
     let mut deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
         None => 0,
         Some(x) => x,
-    };
-    let deg_ub = rub(x-1,y,&r)-1;
-    let mut lhs = (p-1)*(p-2-&a);
+    }; 
+    let mut lhs = (p-1)*(p-2-&a); 
 
-    /* The following bound is not theoretical (since it employs
-     * the upper bound for R(x-1,y) and R(x,y-1)). However, the
-     * Huang-reduction will certainly not improve beyond this.
-     *
-     * TODO: Calculate a lower theoretical bound for how low the
-     * value of p could get by the Huang-reduction method.
-     */ 
     while &(ubp as i128) - &(lbp as i128) > 1 { 
-        let t: BigInt = &a-&b+3*(p-1).to_bigint().unwrap();
-        let mut maxval: BigInt = &t*deg_lb - 3*deg_lb.pow(2u32) + (&b-&a)*(p-1);
-        if 6*deg_lb.to_bigint().unwrap() < t && t < 6*deg_ub.to_bigint().unwrap() {
-            for k in deg_lb..=deg_ub {
-                maxval = max(maxval,&t*k - 3*k.pow(2u32) + (&b-&a)*(p-1));
-                if maxval >= lhs {
-                    break;
-                }
-            }
+        if huang_test(p,&a,&b,deg_lb,deg_ub,&lhs) {
+            ubp = p;
         } else {
-            let vallb = &t*deg_lb - 3*deg_lb.pow(2u32) + (&b-&a)*(p-1);
-            let valub = &t*deg_ub - 3*deg_ub.pow(2u32) + (&b-&a)*(p-1);
-            maxval = max(vallb,valub);
-        }
-        if maxval < lhs {
-            ubp = p; 
-        } else { 
             lbp = p;
         }
         p = (ubp+lbp)/2;
@@ -302,6 +332,21 @@ fn eub(x: u64, y: u64, p: u64, r: &HashMap<(u64,u64),u64>) -> BigInt {
     }
 } 
 
+fn new_test(x: u64, y: u64, p: u64, deg_lb: u64, deg_ub: u64,
+            lhs: &BigInt, r: &HashMap<(u64,u64),u64>) -> bool {
+    let mut maxval: BigInt = 0.to_bigint().unwrap(); 
+    for k in deg_lb..=deg_ub {
+        maxval = max(maxval,(p-k-1)*(p-k-2)
+                     - 2*elb(x,y-1,p-k-1,&r)
+                     + 2*eub(x-1,y,k,&r) + 3*k*(p-k-1)); 
+        if maxval >= *lhs {
+            return false;
+        }
+    } 
+
+    maxval < *lhs
+}
+ 
 /*
  * Returns by how much we may reduce the currently saved bound, of R(x,y), by
  * applying the new methods.
@@ -310,15 +355,39 @@ fn eub(x: u64, y: u64, p: u64, r: &HashMap<(u64,u64),u64>) -> BigInt {
  * values ub should be rub(x,y)
  */
 fn new_reduction(x: u64, y: u64, ub: u64,
-                 r: &HashMap<(u64,u64),u64>) -> i128 { 
-    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1;
-    let mut ubp: u64 = ub;
+                 r: &HashMap<(u64,u64),u64>) -> i128 {
+    /* First check p=ub-1,ub-2 for quick(er) verification */
+    let mut ubp: u64;
+    let deg_ub = rub(x-1,y,&r)-1;
+    let mut p = ub-1; 
+    let mut deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
+        None => 0,
+        Some(x) => x,
+    }; 
+    let mut lhs = (p-1)*(p-2).to_bigint().unwrap(); 
+    if new_test(x,y,p,deg_lb,deg_ub,&lhs,&r) {
+        p = ub-2;
+        deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
+            None => 0,
+            Some(x) => x,
+        }; 
+        lhs = (p-1)*(p-2).to_bigint().unwrap(); 
+        if new_test(x,y,p,deg_lb,deg_ub,&lhs,&r) {
+            ubp = ub-2;
+        } else {
+            return 1;
+        }
+    } else {
+        return 0;
+    }
+
+    /* Otherwise; binary search */
+    let mut lbp: u64 = max(rub(x-1,y,&r),rub(x,y-1,&r))+1; 
     let mut p = (ubp+lbp)/2;
     let mut deg_lb = match p.checked_sub(rub(x,y-1,&r)) {
         None => 0,
         Some(x) => x,
-    };
-    let deg_ub = rub(x-1,y,&r)-1;
+    }; 
     let mut lhs = (p-1)*(p-2).to_bigint().unwrap(); 
 
     /* 
@@ -326,13 +395,7 @@ fn new_reduction(x: u64, y: u64, ub: u64,
      * value of p could get by the Huang-reduction method.
      */ 
     while &ubp - &lbp > 1 {
-        let mut maxval: BigInt = 0.to_bigint().unwrap(); 
-        for k in deg_lb..=deg_ub {
-            maxval = max(maxval,(p-k-1)*(p-k-2)
-                         - 2*elb(x,y-1,p-k-1,&r)
-                         + 2*eub(x-1,y,k,&r) + 3*k*(p-k-1)); 
-        } 
-        if maxval < lhs {
+        if new_test(x,y,p,deg_lb,deg_ub,&lhs,&r) {
             ubp = p; 
         } else {
             lbp = p;
@@ -378,8 +441,8 @@ fn main() {
     let rcopy = r.clone(); 
 
     let xmin = 3;
-    let xmax = 8;
-    let ymax = 10;
+    let xmax = 10;
+    let ymax = 15;
     optim(xmin+1,xmax,ymax,&mut r); 
 
     for x in xmin..=xmax {
@@ -393,7 +456,7 @@ fn main() {
                         print!("  ");
                     } else if folklore_reduction(x,y,&r) >= 0 {
                         print!("= ");
-                    } else if huang_reduction(x,y,rub(x,y,&r)+1,&r) >= 0 { 
+                    } else if huang_reduction(x,y,rub(x,y,&r)+1,&r) > 0 { 
                         print!("+ ");
                     } else {
                         if x != y {
